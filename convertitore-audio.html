@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <title>Convertitore Audio — MP3, WAV, M4A, OGG, FLAC (in browser)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Converti file audio in MP3, WAV, M4A, OGG o FLAC. Tutto offline nel browser, nessun upload.">
+  <style>
+    :root { --max: 880px; --accent:#0ea5e9; } /* accent = azzurro */
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto; margin:0; background:#f8fafc; color:#0f172a}
+
+    /* NAV comune */
+    .topnav{
+      background:#111827; padding:12px; display:flex; flex-wrap:wrap;
+      gap:12px; justify-content:center; border-bottom:1px solid #1f2937;
+    }
+    .topnav a{
+      background:#111; color:#fff; text-decoration:none; font-weight:700; font-size:.95rem;
+      padding:8px 12px; border-radius:10px; border:1px solid #1f2937;
+      transition:transform .15s, box-shadow .2s, border-color .2s;
+    }
+    .topnav a:hover{ transform:translateY(-1px); border-color:#334155; }
+    .topnav a.current{
+      outline:2px solid var(--accent);
+      box-shadow:0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+      border-color:color-mix(in oklab, var(--accent) 50%, #1f2937);
+    }
+    @supports not (color: color-mix(in oklab, red, blue)){
+      .topnav a.current{ outline:2px solid var(--accent); }
+    }
+
+    header{background:#111827;color:#fff;padding:24px;text-align:center}
+    main{max-width:var(--max);margin:22px auto;background:#fff;padding:22px;border-radius:14px;box-shadow:0 10px 20px rgba(2,6,23,.08)}
+    #drop{border:2px dashed #111827;border-radius:12px;padding:26px;background:#f3f4f6;color:#111827;font-weight:700;text-align:center;cursor:pointer}
+    #drop.drag{background:#e5e7eb}
+    .row{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center}
+    @media (max-width:900px){.row{grid-template-columns:1fr;}}
+    select,.btn{padding:12px 14px;border-radius:10px;border:1px solid #e5e7eb;font-weight:700}
+    .btn{appearance:none;border:0;background:#111827;color:#fff;cursor:pointer}
+    .btn.secondary{background:var(--accent)}
+    audio{width:100%;border-radius:8px;margin-top:12px}
+    #status{display:none;margin-top:12px;background:#f1f5f9;border:1px dashed #cbd5e1;padding:12px;border-radius:12px; white-space:pre-wrap}
+    .muted{color:#64748b;font-size:.9rem;margin-top:8px}
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="topnav">
+  <a href="index.html">🏠 Home</a>
+  <a href="convertitore-immagini.html">🖼️ Immagini</a>
+  <a href="convertitore-audio.html">🎵 Audio</a>
+  <a href="convertitore-video.html">🎬 Video</a>
+  <a href="convertitore-pdf-word.html">📄 PDF ↔ Word</a>
+  <a href="convertitore-pdf-jpg.html">🖨️ PDF ↔ JPG</a>
+  <a href="estrattore-audio.html">🎶 Estrai Audio</a>
+</nav>
+
+<header>
+  <h1>Convertitore Audio</h1>
+  <div class="muted">MP3, WAV, M4A (AAC), OGG (Vorbis), FLAC — in browser, senza upload.</div>
+</header>
+
+<main>
+  <input id="file" type="file" accept="audio/*,video/*" style="display:none" />
+  <div class="row">
+    <div id="drop">📂 Trascina qui il tuo file (o clicca)</div>
+    <div>
+      <label class="muted" for="format" style="display:block;margin-bottom:6px">Formato di uscita</label>
+      <select id="format">
+        <option value="mp3" selected>MP3 (lossy)</option>
+        <option value="wav">WAV (lossless, pesante)</option>
+        <option value="m4a">M4A (AAC lossy)</option>
+        <option value="ogg">OGG (Vorbis lossy)</option>
+        <option value="flac">FLAC (lossless)</option>
+      </select>
+    </div>
+    <div>
+      <label class="muted" for="quality" style="display:block;margin-bottom:6px">Qualità</label>
+      <select id="quality">
+        <option value="high" selected>Alta</option>
+        <option value="med">Media</option>
+        <option value="low">Leggera</option>
+      </select>
+    </div>
+  </div>
+
+  <button id="convert" class="btn" style="margin-top:12px">Converti</button>
+  <a id="download" class="btn secondary" style="display:none;margin-top:12px">Scarica</a>
+
+  <audio id="player" controls></audio>
+  <div id="status"></div>
+  <div class="muted">Nota: il primo avvio scarica il motore (~25–30 MB). Su file grandi la conversione può richiedere tempo.</div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
+<script>
+const fileInput = document.getElementById('file');
+const drop = document.getElementById('drop');
+const player = document.getElementById('player');
+const formatEl = document.getElementById('format');
+const qualityEl = document.getElementById('quality');
+const btnConvert = document.getElementById('convert');
+const aDownload = document.getElementById('download');
+const statusEl = document.getElementById('status');
+
+let selectedFile = null, outUrl = null, outName = null, playerUrl = null;
+
+function setStatus(msg, show=true){ statusEl.style.display = show?'block':'none'; statusEl.textContent = msg; }
+
+// Drag & Drop
+drop.addEventListener('click', ()=> fileInput.click());
+fileInput.addEventListener('change', e => handle(e.target.files));
+['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.add('drag'); }));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.remove('drag'); }));
+drop.addEventListener('drop', e=> handle(e.dataTransfer.files));
+
+function handle(files){
+  if(!files || !files.length) return;
+  selectedFile = files[0];
+  drop.textContent = '✅ File: ' + selectedFile.name;
+  if (outUrl)   { URL.revokeObjectURL(outUrl);   outUrl=null; aDownload.style.display='none'; }
+  if (playerUrl){ URL.revokeObjectURL(playerUrl); playerUrl=null; }
+  playerUrl = URL.createObjectURL(selectedFile);
+  player.src = playerUrl;
+}
+
+const { createFFmpeg, fetchFile } = FFmpeg;
+const ffmpeg = createFFmpeg({
+  log: true,
+  corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js'
+});
+
+ffmpeg.on('log', ({message}) => {
+  if (/download|load|open|compile/i.test(message)) setStatus('⏳ ' + message);
+});
+ffmpeg.on('progress', p => setStatus(`⚙️ Elaborazione: ${(p.progress*100).toFixed(0)}%`));
+
+async function ensureFF(){
+  if(!ffmpeg.isLoaded()){
+    setStatus('⏳ Carico il motore… (~25–30 MB, solo la prima volta)');
+    await ffmpeg.load();
+  }
+}
+
+btnConvert.addEventListener('click', async ()=>{
+  if(!selectedFile){ alert('Seleziona o trascina un file prima.'); return; }
+  try{
+    await ensureFF();
+    setStatus('🔧 Preparo la conversione…');
+    const inName = 'input_' + Date.now() + '.' + (selectedFile.name.split('.').pop()||'bin');
+    ffmpeg.FS('writeFile', inName, await fetchFile(selectedFile));
+
+    const fmt = formatEl.value;
+    const outFile = 'output.' + fmt;
+    outName = (selectedFile.name.replace(/\.[^.]+$/,'') || 'audio') + '.' + fmt;
+
+    const q = qualityEl.value;
+    const mp3 = q==='high' ? ['-c:a','libmp3lame','-q:a','2'] :
+                 q==='med'  ? ['-c:a','libmp3lame','-q:a','4'] :
+                              ['-c:a','libmp3lame','-b:a','128k'];
+    const aac = q==='high' ? ['-c:a','aac','-b:a','192k'] :
+                 q==='med'  ? ['-c:a','aac','-b:a','160k'] :
+                              ['-c:a','aac','-b:a','128k'];
+    const ogg = q==='high' ? ['-c:a','libvorbis','-q:a','6'] :
+                 q==='med'  ? ['-c:a','libvorbis','-q:a','4'] :
+                              ['-c:a','libvorbis','-q:a','2'];
+    const flac= ['-c:a','flac'];
+    const wav = ['-c:a','pcm_s16le'];
+
+    const baseArgs = ['-i', inName, '-vn'];
+    let args = [];
+    if (fmt==='mp3')      args = [...baseArgs, ...mp3, outFile];
+    else if (fmt==='m4a') args = [...baseArgs, ...aac, '-movflags','+faststart', outFile];
+    else if (fmt==='ogg') args = [...baseArgs, ...ogg, outFile];
+    else if (fmt==='flac')args = [...baseArgs, ...flac, outFile];
+    else if (fmt==='wav') args = [...baseArgs, ...wav, outFile];
+    else throw new Error('Formato non supportato');
+
+    setStatus('🎶 Converto in ' + fmt.toUpperCase() + '…');
+    await ffmpeg.run(...args);
+
+    const data = ffmpeg.FS('readFile', outFile);
+    if (outUrl) URL.revokeObjectURL(outUrl);
+
+    const mime = fmt==='mp3' ? 'audio/mpeg' :
+                 fmt==='m4a' ? 'audio/mp4' :
+                 fmt==='ogg' ? 'audio/ogg' :
+                 fmt==='flac'? 'audio/flac' : 'audio/wav';
+
+    outUrl = URL.createObjectURL(new Blob([data.buffer], { type: mime }));
+    aDownload.href = outUrl; aDownload.download = outName; aDownload.style.display='inline-block';
+    setStatus('✅ Pronto! Clicca “Scarica”.', true);
+  }catch(e){
+    console.error(e);
+    setStatus('❌ Errore: prova un altro file o un formato diverso.', true);
+  }
+});
+</script>
+</body>
+</html>
