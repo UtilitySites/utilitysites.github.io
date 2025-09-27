@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <title>Utility Online — Convertitori Gratuiti</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Converti file online gratis: audio, video, immagini, PDF e altro. Tutto nel browser, sicuro e senza upload.">
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --text: #0f172a;
+      --primary: #111827;
+      --radius: 14px;
+      --shadow: 0 10px 20px rgba(0,0,0,.08);
+    }
+    body {
+      margin:0; font-family: system-ui,-apple-system,Segoe UI,Roboto;
+      background: var(--bg); color: var(--text);
+    }
+    header {
+      background: var(--primary); color:#fff;
+      padding:20px; text-align:center;
+      font-size:1.6rem; font-weight:800;
+    }
+    .hero {
+      text-align:center; padding:50px 20px;
+    }
+    .hero h1 {
+      font-size:2.2rem; margin-bottom:12px;
+    }
+    .hero p {
+      font-size:1.1rem; color:#475569; max-width:600px; margin:0 auto;
+    }
+    main {
+      max-width:1100px; margin:0 auto; padding:30px 20px;
+      display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+      gap:20px;
+    }
+    .card {
+      background:#fff; border-radius:var(--radius);
+      padding:24px; box-shadow:var(--shadow);
+      text-align:center; transition:transform .2s, box-shadow .2s;
+      cursor:pointer; text-decoration:none; color:inherit;
+    }
+    .card:hover {
+      transform:translateY(-4px);
+      box-shadow:0 14px 24px rgba(0,0,0,.12);
+    }
+    .card span {
+      font-size:2rem; display:block; margin-bottom:10px;
+    }
+    .card h2 {
+      margin:0 0 8px; font-size:1.3rem;
+    }
+    .card p {
+      font-size:.95rem; color:#475569;
+    }
+    footer {
+      text-align:center; padding:20px; margin-top:30px;
+      font-size:.9rem; color:#64748b;
+    }
+  </style>
+</head>
+<body>
+  <header>Utility Online</header>
+
+  <section class="hero">
+    <h1>Converti i tuoi file in pochi secondi</h1>
+    <p>Sicuro, gratuito e veloce. Tutto avviene nel tuo browser: nessun upload, la tua privacy è garantita.</p>
+  </section>
+
+  <main>
+    <a href="convertitore-immagini.html" class="card">
+      <span>🖼️</span>
+      <h2>Immagini</h2>
+      <p>Converti tra PNG, JPG, WEBP e AVIF. Ridimensiona e imposta la qualità.</p>
+    </a>
+    <a href="convertitore-audio.html" class="card">
+      <span>🎵</span>
+      <h2>Audio</h2>
+      <p>MP3, WAV, M4A, OGG, FLAC. Conversione diretta e veloce.</p>
+    </a>
+    <a href="convertitore-video.html" class="card">
+      <span>🎬</span>
+      <h2>Video</h2>
+      <p>Converti i tuoi video in MP4, MKV, MOV o WEBM.</p>
+    </a>
+    <a href="convertitore-pdf-word.html" class="card">
+      <span>📄</span>
+      <h2>PDF ↔ Word</h2>
+      <p>Trasforma documenti PDF in Word e viceversa in un click.</p>
+    </a>
+    <a href="convertitore-pdf-jpg.html" class="card">
+      <span>🖨️</span>
+      <h2>PDF ↔ JPG</h2>
+      <p>Converti le pagine di un PDF in immagini JPG e viceversa.</p>
+    </a>
+    <a href="estrattore-audio.html" class="card">
+      <span>🎶</span>
+      <h2>Estrai Audio</h2>
+      <p>Carica un video e scarica solo la traccia audio in MP3 o M4A.</p>
+    </a>
+  </main>
+
+  <footer>
+    © 2025 Utility Online — Made with ❤️
+  </footer>
+</body>
+</html>

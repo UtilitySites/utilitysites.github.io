@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <title>Estrai Audio da Video — MP3/M4A (in browser)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Carica un video e scarica l’audio in MP3 o M4A. Tutto offline nel browser, nessun upload.">
+  <style>
+    :root{ --max:880px; --accent:#10b981; } /* verde smeraldo per Estrai Audio */
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto; margin:0; background:#f8fafc; color:#0f172a}
+
+    /* NAV comune */
+    .topnav{
+      background:#111827; padding:12px; display:flex; flex-wrap:wrap;
+      gap:12px; justify-content:center; border-bottom:1px solid #1f2937;
+    }
+    .topnav a{
+      background:#111; color:#fff; text-decoration:none; font-weight:700; font-size:.95rem;
+      padding:8px 12px; border-radius:10px; border:1px solid #1f2937;
+      transition:transform .15s, box-shadow .2s, border-color .2s;
+    }
+    .topnav a:hover{ transform:translateY(-1px); border-color:#334155; }
+    .topnav a.current{
+      outline:2px solid var(--accent);
+      box-shadow:0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+      border-color:color-mix(in oklab, var(--accent) 50%, #1f2937);
+    }
+    @supports not (color: color-mix(in oklab, red, blue)){
+      .topnav a.current{ outline:2px solid var(--accent); }
+    }
+
+    header{background:#10b981;color:#fff;padding:24px;text-align:center}
+    main{max-width:var(--max);margin:22px auto;background:#fff;padding:22px;border-radius:14px;box-shadow:0 10px 20px rgba(2,6,23,.08)}
+    #drop{border:2px dashed #10b981;border-radius:12px;padding:26px;background:#ecfdf5;color:#065f46;font-weight:700;text-align:center;cursor:pointer}
+    #drop.drag{background:#d1fae5}
+    .row{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}
+    @media (max-width:720px){.row{grid-template-columns:1fr}}
+    select,.btn{padding:12px 14px;border-radius:10px;border:1px solid #e5e7eb;font-weight:700}
+    .btn{appearance:none;border:0;background:#10b981;color:#fff;cursor:pointer}
+    .btn.secondary{background:#111827}
+    video{width:100%;border-radius:12px;background:#000;margin-top:12px}
+    #status{display:none;margin-top:12px;background:#f1f5f9;border:1px dashed #cbd5e1;padding:12px;border-radius:12px; white-space:pre-wrap}
+    .muted{color:#64748b;font-size:.9rem;margin-top:8px}
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="topnav">
+  <a href="index.html">🏠 Home</a>
+  <a href="convertitore-immagini.html">🖼️ Immagini</a>
+  <a href="convertitore-audio.html">🎵 Audio</a>
+  <a href="convertitore-video.html">🎬 Video</a>
+  <a href="convertitore-pdf-word.html">📄 PDF ↔ Word</a>
+  <a href="convertitore-pdf-jpg.html">🖨️ PDF ↔ JPG</a>
+  <a href="estrattore-audio.html" class="current">🎶 Estrai Audio</a>
+</nav>
+
+<header>
+  <h1>Estrai Audio da Video</h1>
+  <div class="muted" style="color:#ecfdf5">Seleziona un file tuo. Esporta in MP3 o M4A, tutto nel browser.</div>
+</header>
+
+<main>
+  <input id="file" type="file" accept="video/*,audio/*" style="display:none" />
+  <div class="row">
+    <div id="drop">📂 Trascina qui il tuo file (o clicca)</div>
+    <div>
+      <label for="format" class="muted" style="display:block;margin-bottom:6px">Formato audio</label>
+      <select id="format">
+        <option value="mp3" selected>MP3 (consigliato)</option>
+        <option value="m4a">M4A (AAC)</option>
+      </select>
+    </div>
+  </div>
+
+  <button id="extract" class="btn" style="margin-top:12px">Estrai</button>
+  <a id="download" class="btn secondary" style="display:none;margin-top:12px">Scarica</a>
+
+  <video id="player" controls muted></video>
+  <div id="status"></div>
+  <div class="muted">Suggerimento: pubblica su HTTPS (GitHub Pages). Il primo avvio scarica il motore (~25–30 MB).</div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
+<script>
+const fileInput  = document.getElementById('file');
+const drop       = document.getElementById('drop');
+const player     = document.getElementById('player');
+const formatEl   = document.getElementById('format');
+const btnExtract = document.getElementById('extract');
+const aDownload  = document.getElementById('download');
+const statusEl   = document.getElementById('status');
+
+let selectedFile = null, outUrl = null, outName = null, playerUrl = null;
+
+function setStatus(msg, show=true){ statusEl.style.display = show?'block':'none'; statusEl.textContent = msg; }
+
+// Drag & drop / selezione
+drop.addEventListener('click', ()=> fileInput.click());
+fileInput.addEventListener('change', e => handle(e.target.files));
+['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.add('drag'); }));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.remove('drag'); }));
+drop.addEventListener('drop', e=> { e.preventDefault(); handle(e.dataTransfer.files); });
+
+function handle(files){
+  if(!files || !files.length) return;
+  selectedFile = files[0];
+  drop.textContent = '✅ File: ' + selectedFile.name;
+
+  // pulizia URL precedenti
+  if (outUrl) { URL.revokeObjectURL(outUrl); outUrl=null; aDownload.style.display='none'; }
+  if (playerUrl) { URL.revokeObjectURL(playerUrl); playerUrl=null; }
+
+  playerUrl = URL.createObjectURL(selectedFile);
+  player.src = playerUrl;
+}
+
+// ✅ corePath per GH Pages / Netlify (carica il core dal CDN)
+const { createFFmpeg, fetchFile } = FFmpeg;
+const ffmpeg = createFFmpeg({
+  log: true,
+  corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js'
+});
+
+// Log utili e progresso
+ffmpeg.on('log', ({message}) => {
+  if (/download|load|open|compile/i.test(message)) setStatus('⏳ ' + message);
+});
+ffmpeg.on('progress', p => setStatus(`⚙️ Elaborazione: ${(p.progress*100).toFixed(0)}%`));
+
+async function ensureFF(){
+  if(!ffmpeg.isLoaded()){
+    setStatus('⏳ Carico il motore… (~25–30 MB, solo la prima volta)');
+    await ffmpeg.load();
+  }
+}
+
+btnExtract.addEventListener('click', async ()=>{
+  if(!selectedFile){ alert('Seleziona o trascina un file prima.'); return; }
+  try{
+    await ensureFF();
+    setStatus('🎶 Estrazione in corso…');
+
+    const inName = 'input_' + Date.now() + '.' + (selectedFile.name.split('.').pop()||'bin');
+    ffmpeg.FS('writeFile', inName, await fetchFile(selectedFile));
+
+    const fmt = formatEl.value;
+    const outFile = 'output.' + (fmt==='mp3'?'mp3':'m4a');
+    outName = (selectedFile.name.replace(/\.[^.]+$/,'') || 'audio') + '.' + (fmt==='mp3'?'mp3':'m4a');
+
+    // Estrai solo audio (-vn). MP3 VBR alta qualità, M4A 192k.
+    if (fmt === 'mp3') {
+      await ffmpeg.run('-i', inName, '-vn', '-c:a', 'libmp3lame', '-q:a', '2', outFile);
+    } else {
+      await ffmpeg.run('-i', inName, '-vn', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', outFile);
+    }
+
+    const data = ffmpeg.FS('readFile', outFile);
+    if (outUrl) URL.revokeObjectURL(outUrl);
+    outUrl = URL.createObjectURL(new Blob([data.buffer], { type: (fmt==='mp3'?'audio/mpeg':'audio/mp4') }));
+    aDownload.href = outUrl; aDownload.download = outName; aDownload.style.display='inline-block';
+    setStatus('✅ Pronto! Clicca “Scarica”.', true);
+  }catch(e){
+    console.error(e);
+    setStatus('❌ Non riesco a estrarre l’audio. Prova: 1) pagina su HTTPS (GitHub Pages), 2) disattiva AdBlock, 3) usa un altro file.', true);
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <title>Convertitore PDF ↔ DOC ↔ DOCX (solo testo)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --max: 900px; --accent:#dc2626; } /* accento rosso per questa pagina */
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 0; background: #f8fafc; color: #0f172a; }
+
+    /* NAV comune */
+    .topnav{
+      background:#111827; padding:12px; display:flex; flex-wrap:wrap;
+      gap:12px; justify-content:center; border-bottom:1px solid #1f2937;
+    }
+    .topnav a{
+      background:#111; color:#fff; text-decoration:none; font-weight:700; font-size:.95rem;
+      padding:8px 12px; border-radius:10px; border:1px solid #1f2937;
+      transition:transform .15s, box-shadow .2s, border-color .2s;
+    }
+    .topnav a:hover{ transform:translateY(-1px); border-color:#334155; }
+    .topnav a.current{
+      outline:2px solid var(--accent);
+      box-shadow:0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+      border-color:color-mix(in oklab, var(--accent) 50%, #1f2937);
+    }
+    @supports not (color: color-mix(in oklab, red, blue)){
+      .topnav a.current{ outline:2px solid var(--accent); }
+    }
+
+    header { background: #dc2626; color: #fff; padding: 24px; text-align: center; }
+    header h1 { margin: 0 0 6px; font-size: 1.8rem; }
+    main { max-width: var(--max); margin: 24px auto; background: #fff; padding: 28px; border-radius: 14px; box-shadow: 0 10px 20px rgba(2,6,23,.08); }
+    .upload { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; }
+    @media (max-width:700px){ .upload { grid-template-columns: 1fr; } }
+    #drop-zone { border: 2px dashed #dc2626; border-radius: 12px; padding: 28px; background: #fff5f5; color:#b91c1c; font-weight: 700; text-align: center; cursor: pointer; transition: background .2s, border-color .2s; }
+    #drop-zone.dragover { background:#fee2e2; border-color:#991b1b; }
+    .controls { display:grid; grid-template-columns: 1fr 220px; gap: 12px; align-items:center; margin-top: 12px; }
+    @media (max-width:700px){ .controls { grid-template-columns: 1fr; } }
+    select { padding: 12px 14px; border-radius: 10px; border: 1px solid #e5e7eb; font-weight: 700; }
+    .btn { appearance: none; border: 0; background: #dc2626; color: #fff; padding: 12px 18px; border-radius: 10px; font-weight: 800; cursor: pointer; }
+    .btn:hover { background:#b91c1c; }
+    #convert { margin-top: 16px; }
+    #status { margin-top: 14px; background: #f1f5f9; border: 1px dashed #cbd5e1; padding: 12px; border-radius: 12px; display:none; white-space: pre-wrap; }
+    .hint { color:#6b7280; font-size:.9rem; margin-top:10px; }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="topnav">
+  <a href="index.html">🏠 Home</a>
+  <a href="convertitore-immagini.html">🖼️ Immagini</a>
+  <a href="convertitore-audio.html">🎵 Audio</a>
+  <a href="convertitore-video.html">🎬 Video</a>
+  <a href="convertitore-pdf-word.html" class="current">📄 PDF ↔ Word</a>
+  <a href="convertitore-pdf-jpg.html">🖨️ PDF ↔ JPG</a>
+  <a href="estrattore-audio.html">🎶 Estrai Audio</a>
+</nav>
+
+<header>
+  <h1>Convertitore PDF ↔ DOC ↔ DOCX</h1>
+  <div>Carica PDF/DOC/DOCX e scegli il formato di uscita (solo testo)</div>
+</header>
+
+<main>
+  <input id="file" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none" />
+
+  <div class="upload">
+    <div id="drop-zone">📂 Trascina qui il tuo PDF / DOC / DOCX</div>
+    <button id="select" class="btn">Seleziona dal PC</button>
+  </div>
+
+  <div class="controls">
+    <div class="hint">Scegli il formato di uscita:</div>
+    <select id="target">
+      <option value="pdf">PDF</option>
+      <option value="doc">DOC (Word)</option>
+      <option value="docx" selected>DOCX (Word)</option>
+    </select>
+  </div>
+
+  <button id="convert" class="btn">Converti</button>
+
+  <div id="status"></div>
+  <div class="hint">⚠️ Solo testo: niente immagini/tabelle/layout. I PDF scansionati (immagini) non sono supportati.</div>
+</main>
+
+<!-- Librerie: jsPDF per PDF; JSZip per leggere/scrivere DOCX -->
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const fileInput = document.getElementById('file');
+  const dropZone  = document.getElementById('drop-zone');
+  const btnSelect = document.getElementById('select');
+  const btnConvert= document.getElementById('convert');
+  const statusEl  = document.getElementById('status');
+  const targetSel = document.getElementById('target');
+  let selectedFile = null;
+
+  function setStatus(msg, ok=null){
+    statusEl.style.display = 'block';
+    statusEl.textContent = msg;
+    if (ok === true) { statusEl.style.borderColor = '#10b981'; }
+    else if (ok === false) { statusEl.style.borderColor = '#ef4444'; }
+    else { statusEl.style.borderColor = '#cbd5e1'; }
+  }
+
+  // Selezione file
+  btnSelect.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) {
+      selectedFile = e.target.files[0];
+      dropZone.textContent = '✅ File selezionato: ' + selectedFile.name;
+    }
+  });
+
+  // Drag & drop
+  ['dragenter','dragover'].forEach(ev =>
+    dropZone.addEventListener(ev, (e)=>{ e.preventDefault(); dropZone.classList.add('dragover'); })
+  );
+  ['dragleave','drop'].forEach(ev =>
+    dropZone.addEventListener(ev, (e)=>{ e.preventDefault(); dropZone.classList.remove('dragover'); })
+  );
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      selectedFile = e.dataTransfer.files[0];
+      dropZone.textContent = '✅ File selezionato: ' + selectedFile.name;
+    }
+  });
+
+  // PDF.js (lazy) solo quando serve
+  async function ensurePdfJs() {
+    if (window.pdfjsLib) return;
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Impossibile caricare PDF.js'));
+      document.head.appendChild(s);
+    });
+    if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.js';
+    }
+  }
+
+  // --- Estrazione TESTO ---
+
+  // PDF -> testo
+  async function extractTextFromPDF(file) {
+    await ensurePdfJs();
+    const buf = await file.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    let full = '';
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      full += content.items.map(i => i.str).join(' ') + '\n\n';
+    }
+    return full.trim();
+  }
+
+  // DOCX -> testo
+  async function extractTextFromDocx(file) {
+    const buf = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(buf);
+    const docXml = await zip.file('word/document.xml').async('string');
+    const texts = [];
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(docXml, 'application/xml');
+    const paragraphs = xmlDoc.getElementsByTagName('w:p');
+    for (let p = 0; p < paragraphs.length; p++) {
+      const runs = paragraphs[p].getElementsByTagName('w:t');
+      const line = Array.from(runs).map(n => n.textContent).join('');
+      texts.push(line);
+    }
+    return texts.join('\n').trim();
+  }
+
+  // DOC (binario) -> testo "best-effort"
+  async function extractTextFromDoc(file) {
+    const buf = await file.arrayBuffer();
+    let text = '';
+    try {
+      const dec = new TextDecoder('windows-1252', { fatal: false });
+      text = dec.decode(new Uint8Array(buf));
+    } catch(e) {
+      text = new TextDecoder().decode(new Uint8Array(buf));
+    }
+    text = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ' ');
+    const chunks = text.match(/[\w\p{L}\p{N}\s.,;:!?'\"()\[\]{}+-]{3,}/gu);
+    const best = chunks ? chunks.join(' ') : '';
+    return best.trim();
+  }
+
+  // --- Salvataggio ---
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>]/g, t => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[t]||t));
+  }
+
+  function saveAsDoc(text, baseName) {
+    const htmlDoc =
+      `<!DOCTYPE html><html><head><meta charset="utf-8"></head>` +
+      `<body><pre style="white-space:pre-wrap;font-family:Calibri,Arial,sans-serif;">${escapeHtml(text)}</pre></body></html>`;
+    const blob = new Blob([htmlDoc], { type: 'application/msword' });
+    triggerDownload(blob, baseName + '.doc');
+  }
+
+  async function saveAsDocx(text, baseName) {
+    const zip = new JSZip();
+    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const paragraphs = text.split(/\r?\n/).map(t =>
+      `<w:p><w:r><w:t>${esc(t)}</w:t></w:r></w:p>`
+    ).join('');
+
+    const docXml =
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+ xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+ xmlns:m="http://schemas.microsoft.com/office/2006/math"
+ xmlns:v="urn:schemas-microsoft-com:vml"
+ xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"
+ xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+ xmlns:w10="urn:schemas-microsoft-com:office:word"
+ xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+ xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
+ xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+ xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk"
+ xmlns:wne="http://schemas.microsoft.com/office/2006/word"
+ xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+ mc:Ignorable="w14 wp14">
+  <w:body>
+    ${paragraphs}
+    <w:sectPr>
+      <w:pgSz w:w="11906" w:h="16838"/>
+      <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/>
+      <w:cols w:space="708"/>
+      <w:docGrid w:linePitch="360"/>
+    </w:sectPr>
+  </w:body>
+</w:document>`;
+
+    const contentTypes =
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`;
+
+    const rels =
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+    zip.file('[Content_Types].xml', contentTypes);
+    zip.folder('_rels').file('.rels', rels);
+    zip.folder('word').file('document.xml', docXml);
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    triggerDownload(blob, baseName + '.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  }
+
+  function saveAsPdf(text, baseName) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const lines = doc.splitTextToSize(text || '', 180);
+    doc.text(lines, 15, 20);
+    doc.save(baseName + '.pdf');
+  }
+
+  function triggerDownload(blob, filename){
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    setTimeout(()=> URL.revokeObjectURL(a.href), 2000);
+  }
+
+  // Router conversione
+  btnConvert.addEventListener('click', async () => {
+    if (!selectedFile) { alert('Seleziona o trascina un file prima.'); return; }
+    const target = targetSel.value; // 'pdf' | 'doc' | 'docx'
+    const name = selectedFile.name;
+    const lower = name.toLowerCase();
+    const isPDF  = lower.endsWith('.pdf');
+    const isDOC  = lower.endsWith('.doc') && !lower.endsWith('.docx');
+    const isDOCX = lower.endsWith('.docx');
+
+    setStatus('⏳ Converto, attendi...');
+
+    try {
+      let text = '';
+
+      // 1) Estrai TESTO dalla sorgente
+      if (isPDF) {
+        text = await extractTextFromPDF(selectedFile);
+      } else if (isDOCX) {
+        text = await extractTextFromDocx(selectedFile);
+      } else if (isDOC) {
+        text = await extractTextFromDoc(selectedFile);
+        if (!text) {
+          setStatus('ℹ️ DOC molto complesso: estrazione testuale limitata. Provo comunque a generare l\'uscita...', null);
+        }
+      } else {
+        setStatus('❌ Formato non supportato. Carica PDF, DOC o DOCX.', false);
+        return;
+      }
+
+      // 2) Salva nel formato richiesto
+      const baseName = name.replace(/\.(pdf|docx?|)$/i,'') || 'documento';
+
+      if (target === 'pdf') {
+        saveAsPdf(text, baseName);
+        setStatus('✅ Creato PDF (testo semplice).', true);
+      } else if (target === 'doc') {
+        saveAsDoc(text, baseName);
+        setStatus('✅ Creato DOC (testo semplice).', true);
+      } else if (target === 'docx') {
+        await saveAsDocx(text, baseName);
+        setStatus('✅ Creato DOCX (testo semplice).', true);
+      } else {
+        setStatus('❌ Formato di uscita non valido.', false);
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus('❌ Errore durante la conversione. Prova un altro file.', false);
+    }
+  });
+});
+</script>
+</body>
+</html>

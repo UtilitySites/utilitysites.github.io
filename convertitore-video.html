@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <title>Convertitore Video — MP4 / MKV / MOV / WEBM (in browser)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Converti file video in MP4, MKV, MOV o WEBM direttamente nel browser. Nessun upload, tutto offline.">
+  <style>
+    :root { --max: 980px; --accent:#22c55e; } /* verde */
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto; margin:0; background:#f8fafc; color:#0f172a}
+
+    /* NAV comune */
+    .topnav{
+      background:#111827; padding:12px; display:flex; flex-wrap:wrap;
+      gap:12px; justify-content:center; border-bottom:1px solid #1f2937;
+    }
+    .topnav a{
+      background:#111; color:#fff; text-decoration:none; font-weight:700; font-size:.95rem;
+      padding:8px 12px; border-radius:10px; border:1px solid #1f2937;
+      transition:transform .15s, box-shadow .2s, border-color .2s;
+    }
+    .topnav a:hover{ transform:translateY(-1px); border-color:#334155; }
+    .topnav a.current{
+      outline:2px solid var(--accent);
+      box-shadow:0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+      border-color:color-mix(in oklab, var(--accent) 50%, #1f2937);
+    }
+    @supports not (color: color-mix(in oklab, red, blue)){
+      .topnav a.current{ outline:2px solid var(--accent); }
+    }
+
+    header{background:#22c55e;color:#fff;padding:20px;text-align:center}
+    main{max-width:var(--max);margin:20px auto;background:#fff;padding:20px;border-radius:12px;box-shadow:0 8px 18px rgba(2,6,23,.06)}
+    #drop{border:2px dashed #22c55e;border-radius:12px;padding:20px;background:#ecfdf5;color:#166534;font-weight:700;text-align:center;cursor:pointer}
+    #drop.drag{background:#d1fae5}
+    .row{display:grid;grid-template-columns:1fr 220px 140px;gap:12px;align-items:center}
+    @media (max-width:880px){ .row{ grid-template-columns:1fr 1fr; } .row > *:nth-child(3){ grid-column:1 / -1 } }
+    select,.btn{padding:10px 12px;border-radius:10px;border:1px solid #e5e7eb;font-weight:700}
+    .btn{appearance:none;border:0;background:#22c55e;color:#fff;cursor:pointer}
+    .btn.secondary{background:#111827}
+    video{width:100%;border-radius:8px;background:#000;margin-top:12px}
+    #status{display:none;margin-top:12px;background:#f1f5f9;border:1px dashed #cbd5e1;padding:12px;border-radius:10px; white-space:pre-wrap}
+    .muted{color:#64748b;font-size:.92rem;margin-top:8px}
+    .white{color:#fff;}
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="topnav">
+  <a href="index.html">🏠 Home</a>
+  <a href="convertitore-immagini.html">🖼️ Immagini</a>
+  <a href="convertitore-audio.html">🎵 Audio</a>
+  <a href="convertitore-video.html" class="current">🎬 Video</a>
+  <a href="convertitore-pdf-word.html">📄 PDF ↔ Word</a>
+  <a href="convertitore-pdf-jpg.html">🖨️ PDF ↔ JPG</a>
+  <a href="estrattore-audio.html">🎶 Estrai Audio</a>
+</nav>
+
+<header>
+  <h1>Convertitore Video</h1>
+  <div class="white">Carica un video e converti in MP4 / MKV / MOV / WEBM — tutto nel browser, senza upload.</div>
+</header>
+
+<main>
+  <input id="file" type="file" accept="video/*,audio/*" style="display:none" />
+  <div class="row" style="margin-bottom:12px;">
+    <div id="drop">📂 Trascina qui il tuo file (o clicca)</div>
+    <div>
+      <label class="muted" for="format" style="display:block;margin-bottom:6px">Formato di uscita</label>
+      <select id="format">
+        <option value="mp4" selected>MP4 (H.264 + AAC)</option>
+        <option value="mkv">MKV (H.264 + AAC)</option>
+        <option value="mov">MOV (H.264 + AAC)</option>
+        <option value="webm">WEBM (VP9/VP8 + Vorbis)</option>
+      </select>
+    </div>
+    <div>
+      <label class="muted" for="quality" style="display:block;margin-bottom:6px">Qualità</label>
+      <select id="quality">
+        <option value="high" selected>Alta</option>
+        <option value="med">Media</option>
+        <option value="low">Leggera</option>
+      </select>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px;align-items:center">
+    <button id="convert" class="btn">Converti</button>
+    <a id="download" class="btn secondary" style="display:none">Scarica</a>
+    <div id="status" style="flex:1"></div>
+  </div>
+
+  <video id="player" controls></video>
+  <div class="muted">Suggerimento: pubblica su HTTPS (GitHub Pages). Il primo avvio scarica il motore (~25–30 MB).</div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
+<script>
+const fileInput = document.getElementById('file');
+const drop      = document.getElementById('drop');
+const player    = document.getElementById('player');
+const formatEl  = document.getElementById('format');
+const qualityEl = document.getElementById('quality');
+const btnConvert= document.getElementById('convert');
+const aDownload = document.getElementById('download');
+const statusEl  = document.getElementById('status');
+
+let selectedFile = null, outUrl = null, playerUrl = null, outName = null;
+
+function setStatus(msg, show=true){ statusEl.style.display = show?'block':'none'; statusEl.textContent = msg; }
+
+// Drag & Drop
+drop.addEventListener('click', ()=> fileInput.click());
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.add('drag'); }));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.remove('drag'); }));
+drop.addEventListener('drop', e=>{ e.preventDefault(); handleFiles(e.dataTransfer.files); });
+
+function handleFiles(fs){
+  if(!fs || !fs.length) return;
+  selectedFile = fs[0];
+  drop.textContent = '✅ File: ' + selectedFile.name;
+
+  if (outUrl)   { URL.revokeObjectURL(outUrl); outUrl=null; aDownload.style.display='none'; }
+  if (playerUrl){ URL.revokeObjectURL(playerUrl); playerUrl=null; }
+
+  playerUrl = URL.createObjectURL(selectedFile);
+  player.src = playerUrl;
+}
+
+// FFmpeg (corePath per GH Pages / Netlify)
+const { createFFmpeg, fetchFile } = FFmpeg;
+const ffmpeg = createFFmpeg({
+  log: true,
+  corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js'
+});
+ffmpeg.on('log', ({message}) => { if(/download|load|open|compile/i.test(message)) setStatus('⏳ ' + message); });
+ffmpeg.on('progress', p => setStatus(`⚙️ Elaborazione: ${(p.progress*100).toFixed(0)}%`));
+
+async function ensureFF(){
+  if(!ffmpeg.isLoaded()){
+    setStatus('⏳ Carico il motore… (~25–30 MB, solo la prima volta)');
+    await ffmpeg.load();
+  }
+}
+
+btnConvert.addEventListener('click', async ()=>{
+  if(!selectedFile){ alert('Seleziona o trascina un file prima.'); return; }
+  try{
+    await ensureFF();
+    setStatus('🎬 Conversione in corso…');
+
+    const inName = 'input_' + Date.now() + '.' + (selectedFile.name.split('.').pop()||'bin');
+    ffmpeg.FS('writeFile', inName, await fetchFile(selectedFile));
+
+    const fmt = formatEl.value;
+    const q = qualityEl.value;
+
+    // Preset qualità video/audio
+    const vPreset =
+      q==='high' ? ['-c:v','libx264','-preset','medium','-crf','20'] :
+      q==='med'  ? ['-c:v','libx264','-preset','faster','-crf','24'] :
+                   ['-c:v','libx264','-preset','veryfast','-crf','28'];
+
+    const aPreset =
+      q==='high' ? ['-c:a','aac','-b:a','192k'] :
+      q==='med'  ? ['-c:a','aac','-b:a','160k'] :
+                   ['-c:a','aac','-b:a','128k'];
+
+    let outFile, args;
+
+    if (fmt==='webm'){
+      // WEBM: VP9 + Vorbis (ampia compatibilità)
+      outFile = 'output.webm';
+      const v9 =
+        q==='high' ? ['-c:v','libvpx-vp9','-b:v','0','-crf','28'] :
+        q==='med'  ? ['-c:v','libvpx-vp9','-b:v','0','-crf','32'] :
+                     ['-c:v','libvpx-vp9','-b:v','0','-crf','36'];
+      const aVorbis =
+        q==='high' ? ['-c:a','libvorbis','-q:a','5'] :
+        q==='med'  ? ['-c:a','libvorbis','-q:a','4'] :
+                     ['-c:a','libvorbis','-q:a','3'];
+      args = ['-i', inName, ...v9, ...aVorbis, outFile];
+    } else {
+      // MP4/MKV/MOV: H.264 + AAC
+      outFile = 'output.' + fmt;
+      args = ['-i', inName, ...vPreset, ...aPreset];
+      if (fmt==='mp4' || fmt==='mov') args.push('-movflags','+faststart'); // migliore streaming
+      args.push(outFile);
+    }
+
+    await ffmpeg.run(...args);
+
+    const data = ffmpeg.FS('readFile', outFile);
+    if (outUrl) URL.revokeObjectURL(outUrl);
+
+    const mime = fmt==='mp4' ? 'video/mp4' :
+                 fmt==='mkv' ? 'video/x-matroska' :
+                 fmt==='mov' ? 'video/quicktime' : 'video/webm';
+
+    outUrl = URL.createObjectURL(new Blob([data.buffer], { type: mime }));
+    outName = (selectedFile.name.replace(/\.[^.]+$/,'') || 'video') + '.' + fmt;
+
+    aDownload.href = outUrl; aDownload.download = outName; aDownload.style.display='inline-block';
+    setStatus('✅ Pronto! Clicca “Scarica”.', true);
+  }catch(e){
+    console.error(e);
+    setStatus('❌ Errore: prova un altro file o qualità diversa.', true);
+  }
+});
+</script>
+</body>
+</html>
